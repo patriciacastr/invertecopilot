@@ -60,7 +60,7 @@ def fragment_in_page(fragmento: str, page_text: str) -> bool:
     return len(words) >= 4 and hits / len(words) >= 0.85
 
 
-def select_pages(pages: List[dict], budget_chars: int = 60000) -> List[dict]:
+def select_pages(pages: List[dict], budget_chars: int = 100000) -> List[dict]:
     """Si el documento es largo, prioriza las páginas con palabras clave (manteniendo el orden)."""
     total = sum(len(p["text"]) for p in pages)
     if total <= budget_chars:

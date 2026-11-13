@@ -10,7 +10,11 @@ import os
 import pandas as pd
 import streamlit as st
 
+import tempfile
+
+from src.contraste import completar_con_registro, contrastar
 from src.extract import extract_matrix, matrix_rows
+from src.parse_bi import parse_bi
 from src.ocr import extract_pages, extract_pages_from_bytes
 
 st.set_page_config(page_title="InvierteCopilot", layout="wide")
@@ -62,11 +66,33 @@ if pages:
                     st.error(f"Error al extraer: {e}")
         m = st.session_state.get("matrix")
         if m:
-            df = pd.DataFrame(matrix_rows(m))
-            df["verificado"] = df["verificado"].map({True: "✅", False: "⚠️ no verificado", None: ""})
-            st.dataframe(df, use_container_width=True, hide_index=True)
-            if m.informacion_faltante:
-                st.warning("Información faltante: " + "; ".join(m.informacion_faltante))
+            st.markdown("**Registro del Banco de Inversiones (opcional, completa el CUI y permite el contraste)**")
+            reg_demo = sorted(glob.glob("data/demo/registros/*.pdf"))
+            c1, c2 = st.columns(2)
+            reg_choice = c1.selectbox("Registro de ejemplo", ["(ninguno)"] + [os.path.basename(f) for f in reg_demo])
+            reg_up = c2.file_uploader("...o sube el registro (PDF del Banco de Inversiones)", type=["pdf"], key="reg")
+            registro = None
+            try:
+                if reg_up:
+                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tf:
+                        tf.write(reg_up.getvalue())
+                    registro = parse_bi(tf.name)
+                elif reg_choice != "(ninguno)":
+                    registro = parse_bi(os.path.join("data/demo/registros", reg_choice))
+            except Exception as e:
+                st.error(f"No pude leer el registro: {e}")
+            df = pd.DataFrame(completar_con_registro(matrix_rows(m), registro))
+            df["verificado"] = df["verificado"].map({True: "✅", False: "⚠️ no verificado", "registro": "📋 del registro", None: ""})
+            st.dataframe(df, use_container_width=True, hide_index=True,
+                         column_order=["campo", "valor", "página", "fragmento", "verificado"])
+            faltante = list(m.informacion_faltante)
+            if registro and (registro.get("cui") or {}).get("valor"):
+                faltante = [f for f in faltante if f.strip().lower() != "cui"]
+            if faltante:
+                st.warning("Información faltante: " + "; ".join(faltante))
+            if registro:
+                st.subheader("Contraste con el registro del Banco de Inversiones")
+                st.dataframe(pd.DataFrame(contrastar(m, registro)), use_container_width=True, hide_index=True)
             pg = st.number_input("Ver el texto de la página", 1, len(pages), 1)
             with st.expander(f"Página {pg}"):
                 st.text(pages[pg - 1]["text"])

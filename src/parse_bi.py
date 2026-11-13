@@ -101,6 +101,7 @@ def parse_bi(pdf_path: str) -> Dict:
                 break
     if nombre["valor"]:
         nombre["valor"] = re.sub(r"^\(generada[^)]*\)\s*", "", nombre["valor"])
+        nombre["valor"] = re.sub(r"\s*C[oó]digo [uú]nico de inversiones.*$", "", nombre["valor"], flags=re.I).strip()
     out["nombre_proyecto"] = nombre
 
     for campo, etiqueta in [
@@ -113,6 +114,8 @@ def parse_bi(pdf_path: str) -> Dict:
     out["objetivo_central"] = _after_label(pages, r"Descripci[oó]n del objetivo central del proyecto", stop=r"Nombre del indicador", max_lines=4)
     out["indicador_objetivo"] = _after_label(pages, r"Nombre del indicador para la medici[oó]n del objetivo central", max_lines=0)
     out["beneficiarios"] = _after_label(pages, r"Denominaci[oó]n de los beneficiarios directos", stop=r"Unidad de medida", max_lines=3)
+    p, m = _find(pages, r"Costo total de inversi[oó]n viable\s+([\d,\.]+)")
+    out["costo_total_viable"] = _dato(m.group(1) if m else None, p)
     out["alternativa_recomendada"] = _after_label(pages, r"Alternativa 1 \(Recomendada\)", stop=r"^\s*4\.", max_lines=14)
     return out
 
