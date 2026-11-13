@@ -10,6 +10,7 @@ Herramienta del curso: Document AI con PaddleOCR (sesión 10).
 Backends: "paddle" (curso), "tesseract" (respaldo; requiere el binario instalado),
 "auto" (paddle si está instalado, si no tesseract).
 """
+import glob
 import hashlib
 import json
 import os
@@ -17,6 +18,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from typing import Dict, List
 
 import fitz  # PyMuPDF
@@ -93,12 +95,17 @@ def _file_hash(path: str) -> str:
 def extract_pages(pdf_path: str, backend: str = "auto", dpi: int = 200,
                   use_cache: bool = True, max_pages: int = None) -> List[Dict]:
     """Devuelve [{'page': 1, 'text': '...', 'ocr': bool}, ...] (páginas desde 1)."""
-    be = pick_backend(backend)
     os.makedirs(CACHE_DIR, exist_ok=True)
-    cache = os.path.join(CACHE_DIR, f"{_file_hash(pdf_path)}.{be}.json")
-    if use_cache and os.path.exists(cache):
-        with open(cache, encoding="utf-8") as f:
-            return json.load(f)
+    h = _file_hash(pdf_path)
+    # La caché se busca por contenido del PDF (da igual cómo lo renombres) y con cualquier
+    # backend: así funciona aunque esta máquina no tenga OCR instalado.
+    if use_cache and max_pages is None:
+        hits = sorted(glob.glob(os.path.join(CACHE_DIR, f"{h}.*.json")))
+        if hits:
+            with open(hits[0], encoding="utf-8") as f:
+                return json.load(f)
+    be = pick_backend(backend)
+    cache = os.path.join(CACHE_DIR, f"{h}.{be}.json")
 
     ocr_fn = _ocr_paddle if be == "paddle" else _ocr_tesseract
     doc = fitz.open(pdf_path)
@@ -109,8 +116,10 @@ def extract_pages(pdf_path: str, backend: str = "auto", dpi: int = 200,
         text = page.get_text().strip()
         used_ocr = False
         if _needs_ocr(text):
+            t0 = time.time()
             text = ocr_fn(page.get_pixmap(dpi=dpi).tobytes("png")).strip()
             used_ocr = True
+            print(f"  OCR página {i}/{len(doc)}  ({time.time() - t0:.0f} s)", flush=True)
         pages.append({"page": i, "text": text, "ocr": used_ocr})
 
     if use_cache and max_pages is None:

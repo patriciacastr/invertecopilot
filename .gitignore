@@ -4,5 +4,6 @@ __pycache__/
 *.pyc
 .DS_Store
 .streamlit/secrets.toml
+# PDFs de trabajo: no se suben. Los de data/demo (documentos públicos del demo) sí.
 data/pdfs/*
 !data/pdfs/.gitkeep
