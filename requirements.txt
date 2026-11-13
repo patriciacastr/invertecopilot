@@ -1,0 +1,9 @@
+streamlit
+pymupdf
+pydantic
+python-dotenv
+pandas
+# PaddleOCR (sesión 10): agrega las líneas exactas que usaste en tu tarea HW_04
+# paddleocr
+# paddlepaddle
+# RAG: elige según tu tarea de contrataciones (p. ej. chromadb / faiss-cpu / sentence-transformers)
