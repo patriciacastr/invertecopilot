@@ -1,31 +1,130 @@
-"""Lectura de PDF por página. Herramienta del curso: Document AI con PaddleOCR (sesión 10).
+"""Lectura de PDF por página con respaldo a OCR y caché.
 
-Estrategia: intentar texto nativo con PyMuPDF; si una página casi no tiene texto
-(PDF escaneado), renderizar a imagen y pasar por PaddleOCR.
+Herramienta del curso: Document AI con PaddleOCR (sesión 10).
+
+- Si la página tiene texto nativo útil, se usa tal cual (rápido y exacto).
+- Si no (escaneo) o el texto es basura, se renderiza la página y se pasa por OCR.
+- El resultado se guarda en data/cache/<hash>.<backend>.json: el OCR de un PDF de 50
+  páginas se hace UNA vez, no durante el demo.
+
+Backends: "paddle" (curso), "tesseract" (respaldo; requiere el binario instalado),
+"auto" (paddle si está instalado, si no tesseract).
 """
-from typing import List, Dict
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+from typing import Dict, List
 
 import fitz  # PyMuPDF
 
-MIN_CHARS = 40  # debajo de esto, la página se considera escaneada
+MIN_CHARS = 40          # menos que esto => página sin texto útil
+MIN_ALNUM_RATIO = 0.6   # texto "sucio" (capa de texto corrupta) => se re-lee con OCR
+CACHE_DIR = os.environ.get("CACHE_DIR", "data/cache")
+
+_paddle = None
 
 
-def _ocr_page_image(png_bytes: bytes) -> str:
-    # TODO: usar el mismo patrón de PaddleOCR de la sesión 10 / tu tarea HW_04.
-    # Carga el modelo UNA sola vez (variable global o st.cache_resource).
-    raise NotImplementedError
+def _alnum_ratio(text: str) -> float:
+    t = re.sub(r"\s", "", text)
+    return (sum(c.isalnum() for c in t) / len(t)) if t else 0.0
 
 
-def extract_pages(pdf_bytes: bytes) -> List[Dict]:
-    """Devuelve [{'page': 1, 'text': '...', 'ocr': False}, ...] (páginas desde 1)."""
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+def _needs_ocr(text: str) -> bool:
+    return len(text.strip()) < MIN_CHARS or _alnum_ratio(text) < MIN_ALNUM_RATIO
+
+
+def _ocr_paddle(png_bytes: bytes) -> str:
+    """PaddleOCR. Ajusta a la versión que usaste en la sesión 10 / tu tarea HW_04."""
+    global _paddle
+    import numpy as np
+    from PIL import Image
+    import io
+
+    if _paddle is None:
+        from paddleocr import PaddleOCR
+        try:
+            _paddle = PaddleOCR(lang="es", use_angle_cls=True, show_log=False)   # 2.x
+        except Exception:
+            _paddle = PaddleOCR(lang="es")                                        # 3.x
+    img = np.array(Image.open(io.BytesIO(png_bytes)).convert("RGB"))
+    if hasattr(_paddle, "predict"):                                               # 3.x
+        res = _paddle.predict(img)
+        lines = []
+        for r in res:
+            lines += list(r.get("rec_texts", []) if hasattr(r, "get") else r["rec_texts"])
+        return "\n".join(lines)
+    res = _paddle.ocr(img, cls=True)                                              # 2.x
+    return "\n".join(l[1][0] for block in (res or []) if block for l in block)
+
+
+def _ocr_tesseract(png_bytes: bytes) -> str:
+    with tempfile.NamedTemporaryFile(suffix=".png") as f:
+        f.write(png_bytes)
+        f.flush()
+        out = subprocess.run(["tesseract", f.name, "-", "-l", "spa", "--psm", "4"],
+                             capture_output=True, text=True)
+    return out.stdout
+
+
+def pick_backend(backend: str = "auto") -> str:
+    if backend != "auto":
+        return backend
+    try:
+        import paddleocr  # noqa: F401
+        return "paddle"
+    except ImportError:
+        if shutil.which("tesseract"):
+            return "tesseract"
+        raise RuntimeError("No hay OCR disponible: instala paddleocr o tesseract.")
+
+
+def _file_hash(path: str) -> str:
+    h = hashlib.sha1()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()[:16]
+
+
+def extract_pages(pdf_path: str, backend: str = "auto", dpi: int = 200,
+                  use_cache: bool = True, max_pages: int = None) -> List[Dict]:
+    """Devuelve [{'page': 1, 'text': '...', 'ocr': bool}, ...] (páginas desde 1)."""
+    be = pick_backend(backend)
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cache = os.path.join(CACHE_DIR, f"{_file_hash(pdf_path)}.{be}.json")
+    if use_cache and os.path.exists(cache):
+        with open(cache, encoding="utf-8") as f:
+            return json.load(f)
+
+    ocr_fn = _ocr_paddle if be == "paddle" else _ocr_tesseract
+    doc = fitz.open(pdf_path)
     pages = []
     for i, page in enumerate(doc, start=1):
+        if max_pages and i > max_pages:
+            break
         text = page.get_text().strip()
         used_ocr = False
-        if len(text) < MIN_CHARS:
-            pix = page.get_pixmap(dpi=200)
-            text = _ocr_page_image(pix.tobytes("png"))
+        if _needs_ocr(text):
+            text = ocr_fn(page.get_pixmap(dpi=dpi).tobytes("png")).strip()
             used_ocr = True
         pages.append({"page": i, "text": text, "ocr": used_ocr})
+
+    if use_cache and max_pages is None:
+        with open(cache, "w", encoding="utf-8") as f:
+            json.dump(pages, f, ensure_ascii=False)
     return pages
+
+
+def extract_pages_from_bytes(pdf_bytes: bytes, **kw) -> List[Dict]:
+    """Para archivos subidos en Streamlit."""
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+        f.write(pdf_bytes)
+        path = f.name
+    try:
+        return extract_pages(path, **kw)
+    finally:
+        os.unlink(path)

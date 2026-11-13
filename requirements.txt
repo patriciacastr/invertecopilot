@@ -1,5 +1,8 @@
 streamlit
 pymupdf
+pillow
+numpy
+anthropic   # cambia por el SDK que usaste en la sesión 08 si es otro
 pydantic
 python-dotenv
 pandas
