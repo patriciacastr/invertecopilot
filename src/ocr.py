@@ -93,7 +93,7 @@ def _file_hash(path: str) -> str:
 
 
 def extract_pages(pdf_path: str, backend: str = "auto", dpi: int = 200,
-                  use_cache: bool = True, max_pages: int = None) -> List[Dict]:
+                  use_cache: bool = True, max_pages: int = None, progreso=None) -> List[Dict]:
     """Devuelve [{'page': 1, 'text': '...', 'ocr': bool}, ...] (páginas desde 1)."""
     os.makedirs(CACHE_DIR, exist_ok=True)
     h = _file_hash(pdf_path)
@@ -120,6 +120,8 @@ def extract_pages(pdf_path: str, backend: str = "auto", dpi: int = 200,
             text = ocr_fn(page.get_pixmap(dpi=dpi).tobytes("png")).strip()
             used_ocr = True
             print(f"  OCR página {i}/{len(doc)}  ({time.time() - t0:.0f} s)", flush=True)
+        if progreso:
+            progreso(i, len(doc), used_ocr)
         pages.append({"page": i, "text": text, "ocr": used_ocr})
 
     if use_cache and max_pages is None:

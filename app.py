@@ -13,6 +13,7 @@ import pandas as pd
 import streamlit as st
 
 import tempfile
+import time
 
 import altair as alt
 
@@ -162,13 +163,20 @@ if uploaded:
     doc_name = uploaded.name
     key = ("up", uploaded.name, uploaded.size)
     if st.session_state.get("doc_key") != key:
-        with st.spinner("Leyendo documento (usa la caché si ya fue procesado)..."):
-            try:
-                st.session_state.pdf_bytes = uploaded.getvalue()
-                st.session_state.pages = extract_pages_from_bytes(uploaded.getvalue())
-            except Exception as e:
-                st.session_state.pages = None
-                st.error(f"No pude leer el documento: {e}")
+        barra = st.progress(0.0, text="Leyendo documento (usa la caché si ya fue procesado)...")
+        t_ini = time.time()
+
+        def _avance(i, n, ocr):
+            seg = time.time() - t_ini
+            barra.progress(i / n, text=f"Leyendo página {i} de {n}" + (" con OCR (las páginas escaneadas tardan)" if ocr else "")
+                           + f" · {seg:.0f} s")
+        try:
+            st.session_state.pdf_bytes = uploaded.getvalue()
+            st.session_state.pages = extract_pages_from_bytes(uploaded.getvalue(), progreso=_avance)
+        except Exception as e:
+            st.session_state.pages = None
+            st.error(f"No pude leer el documento: {e}")
+        barra.empty()
         st.session_state.doc_key, st.session_state.matrix = key, None
 elif choice != "(ninguno)":
     doc_name = choice
@@ -186,7 +194,8 @@ if pages:
     st.success(f"{doc_name}: {len(pages)} páginas ({n_ocr} leídas con OCR).")
 
     if st.button("Extraer matriz", type="primary"):
-        with st.spinner("Extrayendo datos con citas..."):
+        with st.spinner(f"Extrayendo datos con citas de {len(pages)} páginas... suele tardar entre 20 y 60 segundos. "
+                        "El modelo responde de una sola vez, por eso no hay barra de avance."):
             try:
                 _n0 = len(_llm.USO)
                 st.session_state.matrix = extract_matrix(pages)
@@ -259,32 +268,33 @@ if pages:
             st.info("Pulsa **Extraer matriz** para ver el dashboard.")
         else:
             k = kpis(m, registro)
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                _kpi("Inversión", _soles(k["inversion"]), "az", k["fuente_inversion"] or "")
-            with c2:
-                _kpi("Costo por beneficiario", _soles(k["costo_por_beneficiario"]), "vd", "Inversión ÷ beneficiarios")
-            with c3:
-                _kpi("Beneficiarios", f"{k['beneficiarios']:,}" if k["beneficiarios"] else "—", "az")
-            st.write("")
-            d1, d2 = st.columns([1, 2])
-            with d1:
-                if k["brecha_pct"] is not None:
-                    p = max(0, min(k["brecha_pct"], 100))
-                    st.markdown(f'<div class="caja vd"><div class="tit">📉 Brecha de servicio</div>'
-                                f'<div class="barra"><div style="width:{p}%"></div></div>'
-                                f'<div class="txt"><b style="font-size:1.6rem">{p:.0f}%</b> sin cubrir</div></div>',
-                                unsafe_allow_html=True)
-                else:
-                    st.caption("El documento no trae un porcentaje de brecha.")
-            with d2:
-                st.markdown("**¿En qué se va la inversión?**")
-                filas = costos_tabla(m)
-                if filas:
-                    df_c = pd.DataFrame(filas)
-                    total = df_c["Monto (S/)"].sum()
-                    df_c["Parte"] = df_c["Monto (S/)"] / total
-                    df_c["Etiqueta"] = [f"{p} ({x:.0%})" for p, x in zip(df_c["Partida"], df_c["Parte"])]
+            filas = costos_tabla(m)
+            if not filas:
+                st.info("No se encontraron partidas de costo en el documento.")
+            else:
+                df_c = pd.DataFrame(filas)
+                total = df_c["Monto (S/)"].sum()
+                df_c["Parte"] = df_c["Monto (S/)"] / total
+                _limpio = [re.sub(r"\s*\(\d+(?:[\.,]\d+)?\s*%\)\s*$", "", str(p)) for p in df_c["Partida"]]
+                df_c["Etiqueta"] = [f"{p} ({x:.0%})" for p, x in zip(_limpio, df_c["Parte"])]
+                inv = k["inversion"]
+                top = df_c.iloc[0]
+                top3 = df_c["Parte"].head(3).sum()
+                n_ver = int((df_c["Verificado"] == "✅").sum())
+                nombre_top = str(top["Partida"])
+                nombre_top = nombre_top if len(nombre_top) <= 70 else nombre_top[:67] + "…"
+                izq, der = st.columns([1, 2])
+                with izq:
+                    _kpi("Mayor partida", _soles(top["Monto (S/)"]), "az", f"{top['Parte']:.0%} de lo leído · {nombre_top}")
+                    st.write("")
+                    _kpi("Concentración", f"{top3:.0%}", "vd", f"Las 3 partidas mayores, de {len(df_c)} leídas")
+                    st.write("")
+                    _kpi("Cobertura de partidas", f"{total / inv:.0%}" if inv else "—", "az",
+                         f"S/ {total:,.0f} leídos de la inversión total" if inv else "Sin inversión de referencia")
+                    st.write("")
+                    _kpi("Partidas respaldadas", f"{n_ver} de {len(df_c)}", "vd", "Con cita y monto hallados en la página")
+                with der:
+                    st.markdown("**¿En qué se va la inversión?**")
                     forma = st.radio("Gráfico", ["Dona", "Barras"], horizontal=True, label_visibility="collapsed")
                     paleta = ["#2f6fed", "#1f9d6b", "#7aa7f7", "#7fd1ae", "#f2b84b", "#e9758a", "#9b8cf0", "#4fb3bf",
                               "#c9d6ef", "#b6e3cb", "#f7d9a0", "#f2b3be"]
@@ -292,27 +302,29 @@ if pages:
                            alt.Tooltip("Parte:Q", format=".1%", title="% de lo leído"), "Página"]
                     escala = alt.Scale(domain=list(df_c["Etiqueta"]), range=paleta[:len(df_c)])
                     if forma == "Dona":
-                        chart = (alt.Chart(df_c).mark_arc(innerRadius=70, outerRadius=130)
+                        chart = (alt.Chart(df_c).mark_arc(innerRadius=85, outerRadius=150)
                                  .encode(theta=alt.Theta("Monto (S/):Q", stack=True),
-                                         color=alt.Color("Etiqueta:N", scale=escala,
-                                                         legend=alt.Legend(title=None, orient="right", labelLimit=260)),
-                                         tooltip=tip).properties(height=320))
+                                         color=alt.Color("Etiqueta:N", scale=escala, legend=None),
+                                         tooltip=tip).properties(height=340))
                     else:
                         chart = (alt.Chart(df_c).mark_bar(color="#2f6fed")
                                  .encode(x=alt.X("Monto (S/):Q", title="Soles"),
-                                         y=alt.Y("Partida:N", sort="-x", title=None), tooltip=tip)
-                                 .properties(height=max(140, 36 * len(df_c))))
+                                         y=alt.Y("Partida:N", sort="-x", title=None, axis=alt.Axis(labelLimit=380)), tooltip=tip)
+                                 .properties(height=max(240, 36 * len(df_c))))
                     st.altair_chart(chart, use_container_width=True)
-                    inv = k["inversion"]
-                    cobertura = f", el {total / inv:.0%} de la inversión" if inv else ""
-                    st.caption(f"Las partidas leídas suman S/ {total:,.0f}{cobertura}. Si el porcentaje es bajo, el "
-                               "documento no las lista todas; si pasa de 100%, puede haber subtotales repetidos.")
-                    with st.expander("Ver tabla de partidas"):
-                        st.dataframe(df_c, hide_index=True, use_container_width=True, column_order=["Partida", "Monto (S/)", "Parte", "Página", "Verificado"],
-                                     column_config={"Monto (S/)": st.column_config.NumberColumn(format="%.2f"),
-                                                    "Parte": st.column_config.NumberColumn("% de lo leído", format="percent")})
-                else:
-                    st.info("No se encontraron partidas de costo en el documento.")
+                    if forma == "Dona":
+                        leyenda = "".join(
+                            f"<div style='display:flex;gap:8px;align-items:flex-start;margin:3px 0;font-size:.85rem;line-height:1.3'>"
+                            f"<span style='flex:none;width:11px;height:11px;border-radius:50%;margin-top:4px;background:{paleta[i % len(paleta)]}'></span>"
+                            f"<span>{html.escape(e)}</span></div>" for i, e in enumerate(df_c["Etiqueta"]))
+                        st.markdown(f"<div style='padding:4px 8px'>{leyenda}</div>", unsafe_allow_html=True)
+                st.caption("Los porcentajes son sobre lo leído. Si la cobertura es baja, el documento no lista todas las partidas; "
+                           "si pasa de 100%, puede haber subtotales repetidos.")
+                with st.expander("Ver tabla de partidas"):
+                    st.dataframe(df_c, hide_index=True, use_container_width=True,
+                                 column_order=["Partida", "Monto (S/)", "Parte", "Página", "Verificado"],
+                                 column_config={"Monto (S/)": st.column_config.NumberColumn(format="%.2f"),
+                                                "Parte": st.column_config.NumberColumn("% de lo leído", format="percent")})
 
             if m.indicadores:
                 st.write("")
