@@ -20,7 +20,7 @@ Hacemos **un extractor con trazabilidad y contraste normativo** para **consultor
 - **Quién lo sufre:** consultores y analistas que revisan fichas técnicas y estudios de preinversión y arman matrices en Excel para sus informes.
 - **Cómo se resuelve hoy:** se lee el documento, se copian los datos a Excel y se busca la norma en el SPIJ. Quien ya usa IA (Claude, ChatGPT, NotebookLM, Perplexity) la usa para estructurar, pero **desconfía del resultado y lo contrasta con la fuente original**.
 - **Dónde duele:** (1) los documentos son PDF largos, a veces escaneados; (2) a las fichas les faltan datos y hay que completarlos con otras bases; (3) con la normativa, lo difícil es saber cuál es la **versión vigente**.
-- **Costo:** `[COMPLETAR: horas por documento × costo por hora, con lo que te digan las entrevistas; hoy solo tengo datos cualitativos]`
+- **Costo (caso de ejemplo con mis tiempos, no un dato de mercado):** por documento, leer la ficha me toma ≈ 2 h, revisar la normativa aplicable y su vigencia entre 2 y 3 h (es lo más tedioso: unas normas complementan a otras) y armar la matriz que piden entre 1 y 1.5 h. Son **5 a 6.5 horas por documento**. A mi tarifa (S/ 1,230 al mes por 30 horas semanales ≈ S/ 9.5 por hora) cada documento cuesta **S/ 47 a 61**. Reviso 2 o 3 documentos al mes (≈ S/ 95 a 185); un equipo de 5 a 8 personas en una consultora o gobierno regional, 10 a 24 documentos (≈ S/ 470 a 1,480 al mes). Supuesto: la normativa se revisa con cada documento. Con 3 conversaciones no puedo estimar el costo promedio del sector.
 - **Evidencia (3 conversaciones, notas literales en [`docs/research/`](docs/research/)):**
   - [Entrevista 1](docs/research/entrevista-01.md): gerenta de proyectos. Ya usa IA para armar matrices con citas, pero insiste en contrastar con la fuente; su reto con la normativa es la vigencia.
   - [Entrevista 2](docs/research/entrevista-02.md): analista de proyectos. Su destino final es una matriz en Excel; busca normas en el SPIJ; su organización paga ChatGPT (USD 100 al mes).
@@ -69,28 +69,32 @@ Hacemos **un extractor con trazabilidad y contraste normativo** para **consultor
 - Se corre con `python -m src.rag eval`.
 
 ## 7. Modelo de negocio
-- **Quién paga:** consultoras y equipos técnicos de inversión pública (UF/UEI, OPMI, firmas que preparan o evalúan proyectos).
-- **Precio (hipótesis a validar):** `[DECIDIR: p. ej. S/ 99 por usuario al mes]`. Referencia real de una entrevista: una organización ya paga USD 100 al mes por una herramienta de IA genérica (no precisó si es por persona o en total).
-- **Costo por usuario:** medido con el documento de prueba, **31,993 tokens de entrada y 6,342 de salida ≈ US$ 0.105 por documento** a precio de lista de Gemini 3.5 Flash (US$ 1.50 por millón de entrada y US$ 9.00 por millón de salida). Detalle y supuestos en [`docs/costos.md`](docs/costos.md).
-- **Margen (ejemplo):** un usuario con 40 documentos al mes cuesta ≈ US$ 4.2 en extracción, frente a un precio de decenas de dólares.
+- **Quién paga:** consultoras y equipos técnicos de inversión pública (gobiernos regionales y locales, UF/UEI, OPMI, firmas que preparan o evalúan proyectos). En mi caso, 2 o 3 documentos al mes por persona; en una consultora o gobierno regional trabajan 5 a 8 personas con ese ritmo.
+- **Precio (hipótesis por validar, no probado):** plan por equipo de **S/ 299 al mes hasta 5 usuarios**. Con mis tiempos, el problema le cuesta a un equipo de ese tamaño entre S/ 470 y 1,480 al mes a una tarifa junior de S/ 9.5 por hora (ver sección 3), de modo que el plan equivale a entre el 20% y el 60% de ese costo. Referencia real de una entrevista: una organización ya paga USD 100 al mes por una herramienta de IA genérica (no precisó si es por persona o en total).
+- **Costo por documento:** medido con el documento de prueba, **31,993 tokens de entrada y 6,342 de salida ≈ US$ 0.105** a precio de lista de Gemini 3.5 Flash (US$ 1.50 por millón de entrada y US$ 9.00 por millón de salida; precios consultados el 14/11/2026 en fuentes que citan a Google, `[VERIFICAR en la página oficial]`). Google marcó ese modelo como obsoleto y redirige sus llamadas a Gemini 3.6 Flash, así que el costo real puede ser menor. Detalle en [`docs/costos.md`](docs/costos.md).
+- **Margen (ejemplo):** un equipo con 10 a 24 documentos al mes cuesta ≈ US$ 1 a 2.5 de extracción, frente a un plan de S/ 299. No incluye soporte, servidor ni las preguntas del chat, que aún no he medido.
 - La app muestra el consumo real de la sesión en la barra lateral.
 
 ## 8. Herramientas del curso
 | Herramienta | Sesión | Dónde se usa | Archivo |
 |---|---|---|---|
-| Document AI con OCR (PaddleOCR / Tesseract) | 10 | Lee PDFs escaneados con caché por contenido | `src/ocr.py` |
+| Document AI con OCR (PaddleOCR / Tesseract) | 10 | Lee PDFs escaneados, con caché por contenido y punto de control por página | `src/ocr.py` |
 | LLM con salidas estructuradas | 08 | Matriz con esquema validado y citas | `src/extract.py`, `src/llm.py` |
 | RAG | 08 | Chat sobre el documento y la normativa, con abstención | `src/rag.py` |
-| Streamlit + pandas + altair | `[COMPLETAR sesión]` | Interfaz, dashboard y exportación a Excel | `app.py`, `src/dashboard.py`, `src/exportar.py` |
+| Visualización y dashboards (Streamlit, pandas, altair) | 05 | Interfaz, panel de partidas y exportación a Excel | `app.py`, `src/dashboard.py`, `src/exportar.py` |
+| Evaluación | 12 | Conjunto de preguntas para medir la recuperación de normas y la abstención | `eval/preguntas.csv`, `python -m src.rag eval` |
 
 ## 9. Qué hizo el agente
 Trabajé con Claude como asistente de programación. **Lo que generó el agente:** la estructura del código, el parser del registro del Banco de Inversiones, el índice BM25, el diseño del dashboard y las pruebas de humo.
 
-**Lo que decidí y comprobé yo:** `[COMPLETAR con tus palabras]`
-- El problema y el usuario (las entrevistas son mías).
-- Elegir los documentos y las normas del corpus, y marcar cuáles están derogadas.
-- Revisar las salidas contra los PDF originales y corregir los errores que aparecieron (p. ej. montos mal leídos por OCR, normas derogadas que salían primero, preguntas fuera de alcance que no debían responderse).
-- Definir qué alertas importan para un consultor.
+**Lo que hice yo:**
+- Definí el problema y el usuario: hice y transcribí las conversaciones con usuarios.
+- Reuní el corpus normativo y el documento de prueba, y marqué qué normas están derogadas.
+- Probé la app con documentos reales y detecté los fallos: montos mal leídos por OCR, normas derogadas que salían primero, preguntas fuera de alcance, cobertura de partidas de 198% por subtotales contados dos veces, gráficos cortados.
+- Decidí el diseño: cifras en recuadros, dona frente a barras, y que el panel aportara algo que un buscador de PDF no da (los subtotales y la cobertura de partidas salieron de ahí).
+- Instalé y corrí el proyecto en dos computadoras y subí los cambios al repositorio en varios días.
+
+**Limitación de mi aporte:** casi todo el código lo escribió el agente; yo lo probé y lo validé, y `[COMPLETAR: qué partes puedo explicar sin ayuda]`.
 
 ## Limitaciones
 - **El corpus es una foto:** se indexó el 13/11/2026 y no se actualiza solo. **La vigencia debe verificarse siempre en El Peruano / SPIJ.** El chat lo avisa.

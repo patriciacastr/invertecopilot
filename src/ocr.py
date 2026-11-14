@@ -73,6 +73,7 @@ def _ocr_tesseract(png_bytes: bytes) -> str:
 
 
 def pick_backend(backend: str = "auto") -> str:
+    backend = os.environ.get("OCR_BACKEND", backend) or backend  # p. ej. OCR_BACKEND=tesseract en el .env
     if backend != "auto":
         return backend
     try:
@@ -100,7 +101,7 @@ def extract_pages(pdf_path: str, backend: str = "auto", dpi: int = 200,
     # La caché se busca por contenido del PDF (da igual cómo lo renombres) y con cualquier
     # backend: así funciona aunque esta máquina no tenga OCR instalado.
     if use_cache and max_pages is None:
-        hits = sorted(glob.glob(os.path.join(CACHE_DIR, f"{h}.*.json")))
+        hits = sorted(x for x in glob.glob(os.path.join(CACHE_DIR, f"{h}.*.json")) if ".parcial." not in x)
         if hits:
             with open(hits[0], encoding="utf-8") as f:
                 return json.load(f)
@@ -109,10 +110,23 @@ def extract_pages(pdf_path: str, backend: str = "auto", dpi: int = 200,
 
     ocr_fn = _ocr_paddle if be == "paddle" else _ocr_tesseract
     doc = fitz.open(pdf_path)
-    pages = []
+    # Punto de control: si el proceso se interrumpe (p. ej. Streamlit se recarga), se retoma donde quedó.
+    parcial = os.path.join(CACHE_DIR, f"{h}.{be}.parcial.json")
+    hechas = []
+    if use_cache and max_pages is None and os.path.exists(parcial):
+        try:
+            with open(parcial, encoding="utf-8") as f:
+                hechas = json.load(f)
+        except Exception:
+            hechas = []
+    pages = list(hechas)
     for i, page in enumerate(doc, start=1):
         if max_pages and i > max_pages:
             break
+        if i <= len(hechas):
+            if progreso:
+                progreso(i, len(doc), False)
+            continue
         text = page.get_text().strip()
         used_ocr = False
         if _needs_ocr(text):
@@ -123,10 +137,15 @@ def extract_pages(pdf_path: str, backend: str = "auto", dpi: int = 200,
         if progreso:
             progreso(i, len(doc), used_ocr)
         pages.append({"page": i, "text": text, "ocr": used_ocr})
+        if use_cache and max_pages is None:
+            with open(parcial, "w", encoding="utf-8") as f:
+                json.dump(pages, f, ensure_ascii=False)
 
     if use_cache and max_pages is None:
         with open(cache, "w", encoding="utf-8") as f:
             json.dump(pages, f, ensure_ascii=False)
+        if os.path.exists(parcial):
+            os.remove(parcial)
     return pages
 
 

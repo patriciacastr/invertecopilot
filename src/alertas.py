@@ -2,7 +2,7 @@
 from typing import Dict, List, Optional, Tuple
 
 from src.contraste import _numeros, contrastar
-from src.dashboard import beneficiarios, costos_tabla, inversion
+from src.dashboard import beneficiarios, costos_tabla, inversion, partidas_base
 from src.extract import Dato
 
 ETIQUETAS = {"nombre_proyecto": "nombre del proyecto", "entidad": "entidad", "ubicacion": "ubicación",
@@ -62,7 +62,7 @@ def alertas(matriz, registro: Optional[Dict] = None) -> List[Tuple[str, str]]:
 
     # Cobertura de las partidas de costo
     inv, _ = inversion(matriz, registro)
-    suma = sum(c["Monto (S/)"] for c in costos_tabla(matriz))
+    suma = sum(c["Monto (S/)"] for c in partidas_base(costos_tabla(matriz)))
     if inv and suma:
         if suma / inv < 0.6:
             out.append(("info", f"Las partidas leídas cubren el {suma / inv:.0%} de la inversión: el documento no las lista todas o no se leyeron todas."))

@@ -40,9 +40,9 @@ def matriz_a_excel(matriz, registro: Optional[Dict] = None, documento: str = "")
     tabla = pd.DataFrame([{"Campo": r["campo"], "Valor": r["valor"], "Página": r["página"],
                            "Cita textual": r["fragmento"], "Estado": _VERIF.get(r["verificado"], "")}
                           for r in filas])
-    costos = pd.DataFrame([{"Partida": c["Partida"], "Monto (S/)": c["Monto (S/)"], "Página": c["Página"],
+    costos = pd.DataFrame([{"Partida": c["Partida"], "Monto (S/)": c["Monto (S/)"], "Tipo": c["Tipo"], "Página": c["Página"],
                             "Estado": "Verificado" if c["Verificado"] == "✅" else "No verificado"}
-                           for c in costos_tabla(matriz)], columns=["Partida", "Monto (S/)", "Página", "Estado"])
+                           for c in costos_tabla(matriz)], columns=["Partida", "Monto (S/)", "Tipo", "Página", "Estado"])
     ind = pd.DataFrame([{"Indicador": i.nombre, "Valor": i.valor, "Página": i.pagina,
                          "Cita textual": i.fragmento, "Estado": _VERIF.get(i.verificado, "")}
                         for i in matriz.indicadores], columns=["Indicador", "Valor", "Página", "Cita textual", "Estado"])

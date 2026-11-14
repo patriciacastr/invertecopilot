@@ -36,10 +36,38 @@ def brecha_pct(matriz) -> Optional[float]:
     return None
 
 
+def _es_subtotal(monto: float, otros: List[float], tol: float = 1.0) -> bool:
+    """¿Existe un subconjunto (≥2) de `otros` que sume `monto` (±tol soles)? Entonces `monto` es un subtotal."""
+    otros = [o for o in otros if o > 0][:16]
+    sumas = {0.0: 0}
+    for o in otros:
+        for t, n in list(sumas.items()):
+            sumas.setdefault(round(t + o, 2), n + 1)
+    return any(n >= 2 and abs(t - monto) <= tol for t, n in sumas.items())
+
+
 def costos_tabla(matriz) -> List[Dict]:
+    """Partidas de costo ordenadas de mayor a menor. 'Tipo' marca los subtotales (montos que son la
+    suma de otras partidas leídas) para no contarlos dos veces."""
     filas = [{"Partida": c.concepto, "Monto (S/)": c.monto, "Página": c.pagina,
               "Verificado": "✅" if c.verificado else "⚠️"} for c in matriz.costos if c.monto]
-    return sorted(filas, key=lambda f: -f["Monto (S/)"])
+    filas.sort(key=lambda f: -f["Monto (S/)"])
+    marcados = {i for i, f in enumerate(filas)
+                if re.match(r"\s*(sub\s*-?\s*total|total|costo\s+total)\b", str(f["Partida"]), re.I)}
+    for i, f in enumerate(filas):
+        if i in marcados:
+            continue
+        menores = [g["Monto (S/)"] for j, g in enumerate(filas) if j > i and j not in marcados]
+        if _es_subtotal(f["Monto (S/)"], menores):
+            marcados.add(i)
+    for i, f in enumerate(filas):
+        f["Tipo"] = "Subtotal" if i in marcados else "Partida"
+    return filas
+
+
+def partidas_base(filas: List[Dict]) -> List[Dict]:
+    """Solo las partidas que no son subtotales."""
+    return [f for f in filas if f.get("Tipo") != "Subtotal"]
 
 
 def kpis(matriz, registro: Optional[Dict] = None) -> Dict:

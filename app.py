@@ -20,7 +20,7 @@ import altair as alt
 from src.alertas import alertas
 from src.visor import render_pagina
 from src.contraste import completar_con_registro, contrastar
-from src.dashboard import costos_tabla, kpis
+from src.dashboard import costos_tabla, kpis, partidas_base
 from src import llm as _llm
 from src.exportar import matriz_a_excel
 from src.extract import extract_matrix, matrix_rows
@@ -268,7 +268,9 @@ if pages:
             st.info("Pulsa **Extraer matriz** para ver el dashboard.")
         else:
             k = kpis(m, registro)
-            filas = costos_tabla(m)
+            todas = costos_tabla(m)
+            filas = partidas_base(todas)
+            n_sub = len(todas) - len(filas)
             if not filas:
                 st.info("No se encontraron partidas de costo en el documento.")
             else:
@@ -318,11 +320,14 @@ if pages:
                             f"<span style='flex:none;width:11px;height:11px;border-radius:50%;margin-top:4px;background:{paleta[i % len(paleta)]}'></span>"
                             f"<span>{html.escape(e)}</span></div>" for i, e in enumerate(df_c["Etiqueta"]))
                         st.markdown(f"<div style='padding:4px 8px'>{leyenda}</div>", unsafe_allow_html=True)
-                st.caption("Los porcentajes son sobre lo leído. Si la cobertura es baja, el documento no lista todas las partidas; "
-                           "si pasa de 100%, puede haber subtotales repetidos.")
-                with st.expander("Ver tabla de partidas"):
-                    st.dataframe(df_c, hide_index=True, use_container_width=True,
-                                 column_order=["Partida", "Monto (S/)", "Parte", "Página", "Verificado"],
+                st.caption("Los porcentajes son sobre lo leído. Si la cobertura es baja, el documento no lista todas las partidas."
+                           + (f" Se excluyeron {n_sub} subtotal(es): montos que ya son la suma de otras partidas leídas "
+                              "(evita contar el mismo dinero dos veces)." if n_sub else ""))
+                with st.expander("Ver tabla de partidas" + (f" (incluye {n_sub} subtotal{'es' if n_sub != 1 else ''})" if n_sub else "")):
+                    _t = pd.DataFrame(todas)
+                    _t["Parte"] = [(x / total) if t == "Partida" else None for x, t in zip(_t["Monto (S/)"], _t["Tipo"])]
+                    st.dataframe(_t, hide_index=True, use_container_width=True,
+                                 column_order=["Partida", "Tipo", "Monto (S/)", "Parte", "Página", "Verificado"],
                                  column_config={"Monto (S/)": st.column_config.NumberColumn(format="%.2f"),
                                                 "Parte": st.column_config.NumberColumn("% de lo leído", format="percent")})
 
