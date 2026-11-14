@@ -5,7 +5,9 @@ Flujo: elegir o subir un PDF -> texto por página (caché/OCR) -> matriz con cit
 Para correr:  streamlit run app.py
 """
 import glob
+import html
 import os
+import re
 
 import pandas as pd
 import streamlit as st
@@ -14,6 +16,8 @@ import tempfile
 
 import altair as alt
 
+from src.alertas import alertas
+from src.visor import render_pagina
 from src.contraste import completar_con_registro, contrastar
 from src.dashboard import costos_tabla, kpis
 from src import llm as _llm
@@ -32,20 +36,77 @@ def _soles(x):
     return f"S/ {x:,.0f}" if x else "—"
 
 
-def _tarjeta(titulo, d, icono="", largo=420):
-    """Un dato con su cita: texto legible arriba, evidencia plegada abajo."""
-    with st.container(border=True):
-        st.markdown(f"**{icono} {titulo}**")
-        if not d.valor:
-            st.caption("No aparece en el documento.")
-            return
+_CSS = """
+<style>
+.kpi{border-radius:14px;padding:14px 18px;border:1px solid;min-height:118px;}
+.kpi .et{font-size:.76rem;letter-spacing:.05em;text-transform:uppercase;opacity:.85;font-weight:600;}
+.kpi .val{font-size:2rem;font-weight:800;line-height:1.15;margin-top:4px;}
+.kpi .sub{font-size:.74rem;opacity:.75;margin-top:4px;}
+.caja{border-radius:14px;padding:14px 18px;border:1px solid;margin-bottom:4px;}
+.caja .tit{font-weight:800;font-size:1rem;margin-bottom:6px;}
+.caja .txt{font-size:.95rem;line-height:1.5;}
+.caja .pie{font-size:.78rem;opacity:.8;margin-top:8px;}
+.az{background:#e8f1ff;border-color:#b9d3ff;color:#14304f;}
+.vd{background:#e6f6ee;border-color:#b6e3cb;color:#0f3d2b;}
+.tabla{width:100%;border-collapse:collapse;font-size:.9rem;margin-top:4px;}
+.tabla th{text-align:left;background:#eef4ff;padding:8px 12px;font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid #cfe0ff;}
+.tabla td{padding:9px 12px;border-bottom:1px solid #e6ecf5;vertical-align:top;line-height:1.4;}
+.tabla td.num{white-space:nowrap;text-align:right;}
+.tabla th:nth-child(n+2){text-align:right;}
+.tabla tbody tr:hover{background:#f6faff;}
+.barra{background:#cfe0ff;border-radius:8px;height:14px;margin:6px 0;}
+.barra>div{background:#2f6fed;height:14px;border-radius:8px;}
+[data-testid="stDownloadButton"] button{background:#1f8a5b;color:#fff;border:none;font-weight:700;
+  font-size:1rem;padding:.65rem 1.2rem;border-radius:12px;}
+[data-testid="stDownloadButton"] button:hover{background:#17724a;color:#fff;}
+</style>
+"""
+st.markdown(_CSS, unsafe_allow_html=True)
+
+_NUM = re.compile(r"(S/\.?\s?[\d,]+(?:\.\d+)?|\d[\d,\.]*\s?%|\d[\d,\.]*(?=\s(?:estudiantes|alumnos|personas|habitantes|beneficiari|aulas)))")
+
+
+def _resaltar(txt: str) -> str:
+    """Escapa el texto y pone en negrita las cifras que importan (montos, porcentajes, poblaciones)."""
+    return _NUM.sub(r"<b>\1</b>", html.escape(txt))
+
+
+@st.cache_data(show_spinner=False, max_entries=64)
+def _pagina_img(pdf_bytes: bytes, pagina: int, fragmento: str):
+    return render_pagina(pdf_bytes, pagina, fragmento)
+
+
+def _ver_pagina(clave: str, pagina, fragmento: str) -> None:
+    """Interruptor que muestra la página del PDF donde está la cita (solo se dibuja si se enciende)."""
+    pdf = st.session_state.get("pdf_bytes")
+    if pdf and pagina and st.toggle(f"👁️ Ver la página {pagina} del documento", key=f"ver_{clave}"):
+        png, resaltado = _pagina_img(pdf, int(pagina), fragmento or "")
+        st.image(png, use_container_width=True,
+                 caption="Cita resaltada en amarillo." if resaltado else
+                 "Página del documento (es un escaneo: no se puede resaltar el texto; búscalo en esta página).")
+
+
+def _kpi(etiqueta, valor, color="az", sub=""):
+    st.markdown(f'<div class="kpi {color}"><div class="et">{html.escape(etiqueta)}</div>'
+                f'<div class="val">{html.escape(str(valor))}</div>'
+                f'<div class="sub">{html.escape(sub) or "&nbsp;"}</div></div>', unsafe_allow_html=True)
+
+
+def _caja(titulo, d, icono="", color="az", largo=380):
+    """Un dato con su cita: cuadro de color con el texto, y la evidencia plegada debajo."""
+    if not d.valor:
+        cuerpo, pie = "<i>No aparece en el documento.</i>", ""
+    else:
         txt = d.valor if len(d.valor) <= largo else d.valor[:largo].rsplit(" ", 1)[0] + "…"
-        st.write(txt)
         estado = "✅ cita verificada" if d.verificado else "⚠️ cita no verificada"
-        st.caption(f"📄 página {d.pagina} · {estado}")
+        cuerpo, pie = _resaltar(txt), f'<div class="pie">📄 página {d.pagina} · {estado}</div>'
+    st.markdown(f'<div class="caja {color}"><div class="tit">{icono} {html.escape(titulo)}</div>'
+                f'<div class="txt">{cuerpo}</div>{pie}</div>', unsafe_allow_html=True)
+    if d.valor:
         with st.expander("Ver texto completo y cita"):
             st.write(d.valor)
             st.markdown(f"> {d.fragmento}")
+            _ver_pagina(titulo, d.pagina, d.fragmento)
 
 
 # ---------- Registro del Banco de Inversiones (barra lateral) ----------
@@ -103,6 +164,7 @@ if uploaded:
     if st.session_state.get("doc_key") != key:
         with st.spinner("Leyendo documento (usa la caché si ya fue procesado)..."):
             try:
+                st.session_state.pdf_bytes = uploaded.getvalue()
                 st.session_state.pages = extract_pages_from_bytes(uploaded.getvalue())
             except Exception as e:
                 st.session_state.pages = None
@@ -113,6 +175,8 @@ elif choice != "(ninguno)":
     key = ("demo", choice)
     if st.session_state.get("doc_key") != key:
         with st.spinner("Leyendo documento..."):
+            with open(os.path.join("data/demo", choice), "rb") as _f:
+                st.session_state.pdf_bytes = _f.read()
             st.session_state.pages = extract_pages(os.path.join("data/demo", choice))
         st.session_state.doc_key, st.session_state.matrix = key, None
 pages = st.session_state.get("pages") if doc_name else None
@@ -147,41 +211,47 @@ if pages:
             st.caption(f"CUI **{cui or '—'}**  ·  {m.entidad.valor or '—'}  ·  {m.ubicacion.valor or '—'}")
             k = kpis(m, registro)
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Inversión", _soles(k["inversion"]), help=k["fuente_inversion"])
-            c2.metric("Beneficiarios", f"{k['beneficiarios']:,}" if k["beneficiarios"] else "—")
-            c3.metric("Costo por beneficiario", _soles(k["costo_por_beneficiario"]),
-                      help="Inversión / beneficiarios, calculado por código")
-            c4.metric("Brecha del servicio", f"{k['brecha_pct']:.0f}%" if k["brecha_pct"] is not None else "—")
-            st.caption(f"Inversión según: {k['fuente_inversion'] or '—'}. "
-                       f"Citas verificadas: {k['n_verificadas']} de {k['n_citas']}.")
-            ex = st.session_state.get("uso_extraccion")
-            if ex:
-                _c = _llm.costo_usd(ex)
-                st.caption(f"Procesar este documento: {sum(r['entrada'] for r in ex):,} tokens de entrada y "
-                           f"{sum(r['salida'] for r in ex):,} de salida"
-                           + (f" ≈ US$ {_c:.3f} a precio de lista." if _c is not None else "."))
-            st.download_button("⬇️ Descargar matriz en Excel",
+            with c1:
+                _kpi("Inversión", _soles(k["inversion"]), "az", k["fuente_inversion"] or "")
+            with c2:
+                _kpi("Beneficiarios", f"{k['beneficiarios']:,}" if k["beneficiarios"] else "—", "vd")
+            with c3:
+                _kpi("Costo por beneficiario", _soles(k["costo_por_beneficiario"]), "az", "Inversión ÷ beneficiarios")
+            with c4:
+                _kpi("Brecha del servicio", f"{k['brecha_pct']:.0f}%" if k["brecha_pct"] is not None else "—", "vd")
+            st.write("")
+            st.download_button("⬇️  Descargar matriz en Excel",
                                data=matriz_a_excel(m, registro, doc_name or ""),
                                file_name=f"{os.path.splitext(doc_name or 'matriz')[0]}_matriz.xlsx",
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               use_container_width=True)
+            ex = st.session_state.get("uso_extraccion")
+            _c = _llm.costo_usd(ex) if ex else None
+            st.caption(f"Citas verificadas: {k['n_verificadas']} de {k['n_citas']}."
+                       + (f" Procesar este documento: {sum(r['entrada'] for r in ex):,} tokens de entrada y "
+                          f"{sum(r['salida'] for r in ex):,} de salida"
+                          + (f" ≈ US$ {_c:.3f} a precio de lista." if _c is not None else ".") if ex else ""))
+            al = alertas(m, registro)
+            n_rev = sum(1 for nivel, _ in al if nivel in ("error", "aviso"))
+            with st.expander(f"🚦 Alertas de revisión · {n_rev}", expanded=n_rev > 0):
+                if not al:
+                    st.success("Sin alertas: las citas se verificaron y coincide con el registro.")
+                for nivel, texto in al:
+                    st.markdown({"error": "🔴", "aviso": "🟠", "info": "🔵"}[nivel] + " " + texto)
             col_a, col_b = st.columns(2)
             with col_a:
-                _tarjeta("Problema central", m.problema_central, "❗")
-                _tarjeta("Brecha", m.brecha, "📉")
+                _caja("Problema central", m.problema_central, "❗", "az")
+                _caja("Brecha", m.brecha, "📉", "vd")
             with col_b:
-                _tarjeta("Objetivo", m.objetivo, "🎯")
-                _tarjeta("Población beneficiaria", m.poblacion_beneficiaria, "👥")
+                _caja("Objetivo", m.objetivo, "🎯", "vd")
+                _caja("Población beneficiaria", m.poblacion_beneficiaria, "👥", "az")
             if m.componentes:
-                with st.container(border=True):
-                    st.markdown("**🧩 Componentes**")
-                    for c in m.componentes:
-                        st.markdown(f"- {c.valor}  \n  <small>📄 pág. {c.pagina} · "
-                                    f"{'✅' if c.verificado else '⚠️'}</small>", unsafe_allow_html=True)
-            faltante = list(m.informacion_faltante)
-            if cui:
-                faltante = [f for f in faltante if f.strip().lower() != "cui"]
-            if faltante:
-                st.warning("No aparece en el documento: " + "; ".join(faltante))
+                items = "".join(f"<li>{html.escape(c.valor or '')} "
+                                f"<small>· pág. {c.pagina} {'✅' if c.verificado else '⚠️'}</small></li>"
+                                for c in m.componentes)
+                st.markdown(f'<div class="caja az"><div class="tit">🧩 Componentes</div>'
+                            f'<div class="txt"><ul style="margin:0;padding-left:1.2rem">{items}</ul></div></div>',
+                            unsafe_allow_html=True)
 
     # ---------- Dashboard ----------
     with tab_dash:
@@ -189,38 +259,70 @@ if pages:
             st.info("Pulsa **Extraer matriz** para ver el dashboard.")
         else:
             k = kpis(m, registro)
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                _kpi("Inversión", _soles(k["inversion"]), "az", k["fuente_inversion"] or "")
+            with c2:
+                _kpi("Costo por beneficiario", _soles(k["costo_por_beneficiario"]), "vd", "Inversión ÷ beneficiarios")
+            with c3:
+                _kpi("Beneficiarios", f"{k['beneficiarios']:,}" if k["beneficiarios"] else "—", "az")
+            st.write("")
             d1, d2 = st.columns([1, 2])
             with d1:
-                st.markdown("**Brecha de servicio**")
                 if k["brecha_pct"] is not None:
-                    st.progress(min(k["brecha_pct"], 100) / 100, text=f"{k['brecha_pct']:.0f}% sin cubrir")
+                    p = max(0, min(k["brecha_pct"], 100))
+                    st.markdown(f'<div class="caja vd"><div class="tit">📉 Brecha de servicio</div>'
+                                f'<div class="barra"><div style="width:{p}%"></div></div>'
+                                f'<div class="txt"><b style="font-size:1.6rem">{p:.0f}%</b> sin cubrir</div></div>',
+                                unsafe_allow_html=True)
                 else:
                     st.caption("El documento no trae un porcentaje de brecha.")
-                st.metric("Inversión", _soles(k["inversion"]), help=k["fuente_inversion"])
-                st.metric("Costo por beneficiario", _soles(k["costo_por_beneficiario"]))
             with d2:
                 st.markdown("**¿En qué se va la inversión?**")
                 filas = costos_tabla(m)
                 if filas:
                     df_c = pd.DataFrame(filas)
-                    chart = (alt.Chart(df_c).mark_bar(color="#2f6fed")
-                             .encode(x=alt.X("Monto (S/):Q", title="Soles"),
-                                     y=alt.Y("Partida:N", sort="-x", title=None),
-                                     tooltip=["Partida", alt.Tooltip("Monto (S/):Q", format=",.2f"), "Página"])
-                             .properties(height=max(120, 34 * len(df_c))))
+                    total = df_c["Monto (S/)"].sum()
+                    df_c["Parte"] = df_c["Monto (S/)"] / total
+                    df_c["Etiqueta"] = [f"{p} ({x:.0%})" for p, x in zip(df_c["Partida"], df_c["Parte"])]
+                    forma = st.radio("Gráfico", ["Dona", "Barras"], horizontal=True, label_visibility="collapsed")
+                    paleta = ["#2f6fed", "#1f9d6b", "#7aa7f7", "#7fd1ae", "#f2b84b", "#e9758a", "#9b8cf0", "#4fb3bf",
+                              "#c9d6ef", "#b6e3cb", "#f7d9a0", "#f2b3be"]
+                    tip = ["Partida", alt.Tooltip("Monto (S/):Q", format=",.2f"),
+                           alt.Tooltip("Parte:Q", format=".1%", title="% de lo leído"), "Página"]
+                    escala = alt.Scale(domain=list(df_c["Etiqueta"]), range=paleta[:len(df_c)])
+                    if forma == "Dona":
+                        chart = (alt.Chart(df_c).mark_arc(innerRadius=70, outerRadius=130)
+                                 .encode(theta=alt.Theta("Monto (S/):Q", stack=True),
+                                         color=alt.Color("Etiqueta:N", scale=escala,
+                                                         legend=alt.Legend(title=None, orient="right", labelLimit=260)),
+                                         tooltip=tip).properties(height=320))
+                    else:
+                        chart = (alt.Chart(df_c).mark_bar(color="#2f6fed")
+                                 .encode(x=alt.X("Monto (S/):Q", title="Soles"),
+                                         y=alt.Y("Partida:N", sort="-x", title=None), tooltip=tip)
+                                 .properties(height=max(140, 36 * len(df_c))))
                     st.altair_chart(chart, use_container_width=True)
-                    st.caption("Partidas leídas del documento (con página); pueden no sumar el total "
-                               "si el documento no las lista completas.")
+                    inv = k["inversion"]
+                    cobertura = f", el {total / inv:.0%} de la inversión" if inv else ""
+                    st.caption(f"Las partidas leídas suman S/ {total:,.0f}{cobertura}. Si el porcentaje es bajo, el "
+                               "documento no las lista todas; si pasa de 100%, puede haber subtotales repetidos.")
                     with st.expander("Ver tabla de partidas"):
-                        st.dataframe(df_c, hide_index=True, use_container_width=True,
-                                     column_config={"Monto (S/)": st.column_config.NumberColumn(format="%.2f")})
+                        st.dataframe(df_c, hide_index=True, use_container_width=True, column_order=["Partida", "Monto (S/)", "Parte", "Página", "Verificado"],
+                                     column_config={"Monto (S/)": st.column_config.NumberColumn(format="%.2f"),
+                                                    "Parte": st.column_config.NumberColumn("% de lo leído", format="percent")})
                 else:
                     st.info("No se encontraron partidas de costo en el documento.")
+
             if m.indicadores:
+                st.write("")
                 st.markdown("**Indicadores del proyecto**")
-                df_i = pd.DataFrame([{"Indicador": i.nombre, "Valor": i.valor, "Página": i.pagina,
-                                      "Verificado": "✅" if i.verificado else "⚠️"} for i in m.indicadores])
-                st.dataframe(df_i, hide_index=True, use_container_width=True)
+                filas_i = "".join(
+                    f"<tr><td>{html.escape(str(i.nombre))}</td><td class='num'>{html.escape(str(i.valor))}</td>"
+                    f"<td class='num'>{i.pagina if i.pagina is not None else '—'}</td>"
+                    f"<td class='num'>{'✅' if i.verificado else '⚠️'}</td></tr>" for i in m.indicadores)
+                st.markdown("<table class='tabla'><thead><tr><th>Indicador</th><th>Valor</th><th>Pág.</th><th></th></tr></thead>"
+                            f"<tbody>{filas_i}</tbody></table>", unsafe_allow_html=True)
 
     # ---------- Contraste ----------
     with tab_con:
@@ -243,18 +345,28 @@ if pages:
         pg = st.number_input("Ver el texto de una página", 1, len(pages), 1)
         with st.expander(f"Página {pg}"):
             st.text(pages[pg - 1]["text"])
+        _ver_pagina("tabla", pg, "")
 
     # ---------- Chat ----------
     with tab_chat:
         st.caption("Responde con el documento cargado y con la normativa, citando página y artículo. "
                    "Si no hay evidencia, lo dice.")
+        _SUG = {"Componentes y costos": "¿Cuáles son los componentes del proyecto y cuánto cuesta cada uno?",
+                "Vigencia de la viabilidad": "¿Cuál es la vigencia de la declaración de viabilidad?",
+                "Modificar la cartera del PMI": "¿Cómo se modifica la cartera de inversiones del PMI?",
+                "Tipo de ficha técnica": "¿Qué tipo de ficha técnica corresponde según el monto de inversión?"}
+        st.markdown("**Prueba con una pregunta:**")
+        _cols = st.columns(len(_SUG))
+        for _i, (_c, (_et, _preg)) in enumerate(zip(_cols, _SUG.items())):
+            _c.button(_et, key=f"sug{_i}", use_container_width=True, help=_preg,
+                      on_click=lambda s=_preg: st.session_state.update(pregunta_sug=s))
         hist = st.session_state.setdefault("chat", [])
         for h in hist:
             with st.chat_message(h["role"]):
                 st.write(h["texto"])
                 for f in h.get("fuentes", []):
                     st.caption(f"{'✅' if f['verificado'] else '⚠️'} {f['etiqueta']} — “{f['fragmento']}”")
-        q = st.chat_input("Pregunta sobre el documento o la normativa")
+        q = st.chat_input("Pregunta sobre el documento o la normativa") or st.session_state.pop("pregunta_sug", None)
         if q:
             hist.append({"role": "user", "texto": q})
             st.chat_message("user").write(q)
