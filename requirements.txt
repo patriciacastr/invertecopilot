@@ -6,6 +6,8 @@ google-genai
 pydantic
 python-dotenv
 pandas
+altair
+openpyxl
 # PaddleOCR (sesión 10): agrega las líneas exactas que usaste en tu tarea HW_04
 # paddleocr
 # paddlepaddle

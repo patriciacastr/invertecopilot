@@ -8,7 +8,7 @@ import re
 import unicodedata
 from typing import Callable, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 KEYWORDS = ("problema", "brecha", "beneficiari", "objetivo", "component", "costo",
             "presupuesto", "alternativa", "población", "poblacion", "meta", "monto",
@@ -18,7 +18,12 @@ SYSTEM = (
     "Eres un analista de inversión pública (Invierte.pe). Extrae SOLO lo que el documento dice. "
     "Si un dato no aparece, devuélvelo como null y agrégalo a 'informacion_faltante'. "
     "Para cada dato da la página (el número que aparece en [Página N]) y un fragmento "
-    "LITERAL corto (máx. 25 palabras) copiado del texto. No inventes ni calcules."
+    "LITERAL corto (máx. 25 palabras) copiado del texto. No inventes ni calcules. "
+    "Además llena 'costos' (partidas o rubros con su monto en soles: componentes, gastos generales, "
+    "utilidad, IGV, supervisión, expediente técnico, etc.; máx. 12; 'monto' es solo el número, sin símbolo; "
+    "cada partida con su página y fragmento literal) e 'indicadores' (datos cuantitativos del proyecto: "
+    "indicador de brecha, cobertura, metas físicas como número de aulas, plazo de ejecución; máx. 8; "
+    "'valor' tal como aparece, con su unidad). El texto puede venir de OCR: 'S/.' a veces aparece como '5/.'."
 )
 
 
@@ -27,6 +32,43 @@ class Dato(BaseModel):
     pagina: Optional[int] = Field(None, description="Página donde se encontró")
     fragmento: Optional[str] = Field(None, description="Texto LITERAL corto que lo sustenta")
     verificado: Optional[bool] = Field(None, description="Lo completa el código, no el modelo")
+
+
+def _a_numero(v):
+    """Acepta 8124567.67, '8,124,567.67', 'S/. 8,124,567.67' o '5/. 8,124,567.67' (OCR)."""
+    if v is None or isinstance(v, (int, float)):
+        return v
+    t = str(v)
+    # primero montos con miles/decimales (evita tomar el "5" de "5/." del OCR), luego cualquier número
+    m = (re.search(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", t) or re.search(r"\d+\.\d+", t)
+         or re.search(r"(?<![/\w])\d+", t))
+    if not m:
+        return None
+    try:
+        return float(m.group(0).replace(",", ""))
+    except ValueError:
+        return None
+
+
+class ItemCosto(BaseModel):
+    concepto: str = Field(..., description="Nombre de la partida o rubro")
+    monto: Optional[float] = Field(None, description="Monto en soles, solo número")
+    pagina: Optional[int] = None
+    fragmento: Optional[str] = Field(None, description="Texto LITERAL corto que lo sustenta")
+    verificado: Optional[bool] = Field(None, description="Lo completa el código")
+
+    @field_validator("monto", mode="before")
+    @classmethod
+    def _monto(cls, v):
+        return _a_numero(v)
+
+
+class Indicador(BaseModel):
+    nombre: str = Field(..., description="Qué mide el indicador")
+    valor: Optional[str] = Field(None, description="Valor tal como aparece, con unidad")
+    pagina: Optional[int] = None
+    fragmento: Optional[str] = Field(None, description="Texto LITERAL corto que lo sustenta")
+    verificado: Optional[bool] = Field(None, description="Lo completa el código")
 
 
 class MatrizProyecto(BaseModel):
@@ -40,6 +82,8 @@ class MatrizProyecto(BaseModel):
     poblacion_beneficiaria: Dato
     monto_inversion: Dato
     componentes: List[Dato] = Field(default_factory=list)
+    costos: List[ItemCosto] = Field(default_factory=list)
+    indicadores: List[Indicador] = Field(default_factory=list)
     informacion_faltante: List[str] = Field(default_factory=list)
 
 
@@ -90,6 +134,15 @@ def verify(matriz: MatrizProyecto, pages: List[dict]) -> MatrizProyecto:
             d.verificado = fragment_in_page(d.fragmento, by_page[d.pagina])
         else:
             d.verificado = False
+    for it in matriz.costos:
+        txt = by_page.get(it.pagina, "")
+        ok = bool(it.fragmento) and it.pagina in by_page and fragment_in_page(it.fragmento, txt)
+        if ok and it.monto is not None:               # el monto también debe aparecer en la página
+            ok = f"{it.monto:,.2f}" in txt or f"{it.monto:,.0f}" in txt
+        it.verificado = ok
+    for it in matriz.indicadores:
+        txt = by_page.get(it.pagina, "")
+        it.verificado = bool(it.fragmento) and it.pagina in by_page and fragment_in_page(it.fragmento, txt)
     return matriz
 
 

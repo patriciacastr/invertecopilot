@@ -28,6 +28,39 @@ load_dotenv()
 MAX_OUTPUT_TOKENS = 8192   # Gemini 3.x gasta tokens en "pensar" antes de responder: dejamos margen
 
 
+# ---- Consumo de tokens y costo estimado -------------------------------------------------------
+# Cada llamada deja un registro; la app los suma por sesión. En Gemini los tokens de "pensar"
+# se cobran como salida, por eso se suman a la salida.
+USO: list = []
+
+# USD por millón de tokens (entrada, salida). Fuente: página de precios de la API de Gemini
+# (https://ai.google.dev/gemini-api/docs/pricing); verifícalo antes de citar cifras.
+PRECIOS_USD_M = {
+    "gemini-3.5-flash-lite": (0.30, 2.50),
+    "gemini-3.5-flash": (1.50, 9.00),
+}
+
+
+def registrar_uso(modelo: str, entrada, salida) -> None:
+    USO.append({"modelo": modelo, "entrada": int(entrada or 0), "salida": int(salida or 0)})
+
+
+def costo_usd(registros) -> float:
+    """Costo estimado a precio de lista (aunque tu clave sea gratuita). None si algún modelo no tiene precio."""
+    total = 0.0
+    for r in registros:
+        precio = PRECIOS_USD_M.get(r["modelo"])
+        if precio is None:                                   # p. ej. gemini-3.5-flash-lite-preview
+            cand = [k for k in PRECIOS_USD_M if r["modelo"].startswith(k)]
+            precio = PRECIOS_USD_M[max(cand, key=len)] if cand else None
+        if os.environ.get("PRECIO_ENTRADA_USD_M") and os.environ.get("PRECIO_SALIDA_USD_M"):
+            precio = (float(os.environ["PRECIO_ENTRADA_USD_M"]), float(os.environ["PRECIO_SALIDA_USD_M"]))
+        if precio is None:
+            return None
+        total += r["entrada"] / 1e6 * precio[0] + r["salida"] / 1e6 * precio[1]
+    return total
+
+
 def _provider() -> str:
     return os.environ.get("LLM_PROVIDER", "gemini").lower()
 
@@ -54,6 +87,10 @@ def _call(system: str, user: str, json_mode: bool) -> str:
             for intento in range(3):
                 try:
                     resp = client.models.generate_content(model=m, contents=user, config=cfg)
+                    u = getattr(resp, "usage_metadata", None)
+                    if u:
+                        registrar_uso(m, u.prompt_token_count,
+                                      (u.candidates_token_count or 0) + (getattr(u, "thoughts_token_count", 0) or 0))
                     return resp.text or ""
                 except Exception as e:  # noqa: BLE001
                     ultimo = e
@@ -70,6 +107,7 @@ def _call(system: str, user: str, json_mode: bool) -> str:
             model=model, max_tokens=MAX_OUTPUT_TOKENS, system=system,
             messages=[{"role": "user", "content": user}],
         )
+        registrar_uso(model, msg.usage.input_tokens, msg.usage.output_tokens)
         return "".join(b.text for b in msg.content if b.type == "text")
     raise ValueError(f"LLM_PROVIDER no soportado: {_provider()}")
 
