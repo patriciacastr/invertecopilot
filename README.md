@@ -57,7 +57,11 @@ Hacemos **un extractor con trazabilidad y contraste normativo** para **consultor
   streamlit run app.py
   ```
   Para OCR local se necesita Tesseract con idioma español (`packages.txt` lo declara para despliegue en Streamlit Cloud).
-- **Capturas** (`docs/img/`): `[AGREGAR 3: resumen, dashboard, preguntas con citas]`
+- **Capturas**
+  ![Resumen](docs/img/01-resumen.png)
+  ![Panel](docs/img/02-panel.png)
+  ![Preguntas con citas](docs/img/03-preguntas.png)
+  
 - **Arquitectura:** [`docs/arquitectura.md`](docs/arquitectura.md)
 - **Modelos y por qué:**
   - **Gemini 3.5 Flash** para extraer la matriz (lee documentos largos y devuelve JSON); **Flash-Lite** como modelo de respaldo si el principal falla o está saturado. Se reintentan los errores transitorios (503, 429, cortes de conexión) antes de pasar al respaldo.
