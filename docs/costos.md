@@ -9,7 +9,8 @@ Medición real con el documento de prueba (resumen ejecutivo escaneado, Pitumarc
 | Modelo | gemini-3.5-flash |
 | Precio de lista de entrada | US$ 1.50 por millón |
 | Precio de lista de salida | US$ 9.00 por millón |
-| **Costo por documento** | **≈ US$ 0.105** |
+| **Costo por documento** | **≈ US$ 0.105** (Flash, precio de lista de terceros) |
+| Mismo uso con Flash-Lite (precio oficial verificado: US$ 0.30 / US$ 2.50 por millón) | ≈ US$ 0.025 |
 
 Cálculo: 31,993 / 1,000,000 × 1.50 + 6,342 / 1,000,000 × 9.00 = 0.048 + 0.057.
 

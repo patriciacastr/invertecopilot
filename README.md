@@ -71,8 +71,11 @@ Hacemos **un extractor con trazabilidad y contraste normativo** para **consultor
 ## 7. Modelo de negocio
 - **Quién paga:** consultoras y equipos técnicos de inversión pública (gobiernos regionales y locales, UF/UEI, OPMI, firmas que preparan o evalúan proyectos). En mi caso, 2 o 3 documentos al mes por persona; en una consultora o gobierno regional trabajan 5 a 8 personas con ese ritmo.
 - **Precio (hipótesis por validar, no probado):** plan por equipo de **S/ 299 al mes hasta 5 usuarios**. Con mis tiempos, el problema le cuesta a un equipo de ese tamaño entre S/ 470 y 1,480 al mes a una tarifa junior de S/ 9.5 por hora (ver sección 3), de modo que el plan equivale a entre el 20% y el 60% de ese costo. Referencia real de una entrevista: una organización ya paga USD 100 al mes por una herramienta de IA genérica (no precisó si es por persona o en total).
-- **Costo por documento:** medido con el documento de prueba, **31,993 tokens de entrada y 6,342 de salida ≈ US$ 0.105** a precio de lista de Gemini 3.5 Flash (US$ 1.50 por millón de entrada y US$ 9.00 por millón de salida; precios consultados el 14/11/2026 en fuentes que citan a Google, `[VERIFICAR en la página oficial]`). Google marcó ese modelo como obsoleto y redirige sus llamadas a Gemini 3.6 Flash, así que el costo real puede ser menor. Detalle en [`docs/costos.md`](docs/costos.md).
-- **Margen (ejemplo):** un equipo con 10 a 24 documentos al mes cuesta ≈ US$ 1 a 2.5 de extracción, frente a un plan de S/ 299. No incluye soporte, servidor ni las preguntas del chat, que aún no he medido.
+- **Costo por documento** (tokens medidos con el documento de prueba: **31,993 de entrada y 6,342 de salida**, incluido el razonamiento del modelo):
+  - **Gemini 3.5 Flash-Lite: ≈ US$ 0.025.** Precio oficial verificado en ai.google.dev el 14/11/2026: US$ 0.30 por millón de entrada y US$ 2.50 por millón de salida. Los tokens se midieron con Flash, así que con Flash-Lite la cifra puede variar un poco.
+  - **Gemini 3.5 Flash (modelo de la extracción): ≈ US$ 0.105** a US$ 1.50 y US$ 9.00 por millón, precios de lista tomados de fuentes que citan a Google; no pude confirmarlos en la página oficial porque Google marcó este modelo como obsoleto y lo redirige a Gemini 3.6 Flash. El costo real podría ser menor.
+  - Hoy mi clave está en el **nivel gratuito**, así que no pago nada; estas cifras son lo que costaría a precio de lista. Detalle en [`docs/costos.md`](docs/costos.md).
+- **Margen (ejemplo):** un equipo con 10 a 24 documentos al mes cuesta ≈ US$ 0.25 a 2.5 de extracción (según el modelo), frente a un plan de S/ 299. No incluye soporte, servidor ni las preguntas del chat, que aún no he medido.
 - La app muestra el consumo real de la sesión en la barra lateral.
 
 ## 8. Herramientas del curso
@@ -102,6 +105,7 @@ Trabajé con Claude como asistente de programación. **Lo que generó el agente:
 - **Un «✅» no prueba que el valor sea correcto:** solo que el fragmento existe en la página. Los PDFs escaneados no se pueden resaltar.
 - **El documento puede no listar todas las partidas** o repetir subtotales; el dashboard muestra la cobertura para que se note.
 - **Evaluación pequeña** y escrita por la autora; solo 3 conversaciones con usuarios.
+- **Privacidad:** en el nivel gratuito de Gemini, Google puede usar lo que se envía para mejorar sus productos; en el nivel pagado no. Para documentos de clientes o de gobiernos hay que usar el nivel pagado.
 - No reemplaza la revisión de un profesional: ordena y acelera, no firma.
 
 ## Estructura del repo
