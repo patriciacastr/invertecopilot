@@ -47,7 +47,7 @@ Hacemos **un extractor con trazabilidad y contraste normativo** para **consultor
 - El **Estado ya publica** fichas y normas en línea, pero en PDF; el RAG sobre una normativa acotada es viable hoy con un índice léxico sencillo y citas verificables.
 
 ## 6. Demo
-- **URL pública:** `[PEGAR URL]`
+- **URL pública:** https://invertecopilot-t7hk6dazefypk4ohdvylpn.streamlit.app/
 - **Correr en local:**
   ```bash
   python -m venv .venv
