@@ -2,7 +2,7 @@
 
 > **One-liner:** Hacemos un asistente para consultores de inversión pública que convierte una ficha técnica o resumen ejecutivo de Invierte.pe en una matriz con cada dato citado (página y fragmento verificados por código), la contrasta con el Banco de Inversiones y responde preguntas con la normativa, mediante OCR, LLMs con salida estructurada y RAG.
 
-- **Demo en vivo:** `[PEGAR URL PÚBLICA]`
+- **Demo en vivo:** https://invertecopilot-t7hk6dazefypk4ohdvylpn.streamlit.app/
 - **Video de respaldo (60–90 s):** `[PEGAR ENLACE]`
 
 ---
@@ -61,7 +61,7 @@ Hacemos **un extractor con trazabilidad y contraste normativo** para **consultor
   ![Resumen](docs/img/01-resumen.png)
   ![Panel](docs/img/02-panel.png)
   ![Preguntas con citas](docs/img/03-preguntas.png)
-  
+
 - **Arquitectura:** [`docs/arquitectura.md`](docs/arquitectura.md)
 - **Modelos y por qué:**
   - **Gemini 3.5 Flash** para extraer la matriz (lee documentos largos y devuelve JSON); **Flash-Lite** como modelo de respaldo si el principal falla o está saturado. Se reintentan los errores transitorios (503, 429, cortes de conexión) antes de pasar al respaldo.
