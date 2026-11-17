@@ -24,7 +24,7 @@ Hacemos **un extractor con trazabilidad y contraste normativo** para **consultor
 - **Evidencia (3 conversaciones, notas literales en [`docs/research/`](docs/research/)):**
   - [Entrevista 1](docs/research/entrevista-01.md): gerenta de proyectos. Ya usa IA para armar matrices con citas, pero insiste en contrastar con la fuente; su reto con la normativa es la vigencia.
   - [Entrevista 2](docs/research/entrevista-02.md): analista de proyectos. Su destino final es una matriz en Excel; busca normas en el SPIJ; su organización paga ChatGPT (USD 100 al mes).
-  - [Entrevista 3](docs/research/entrevista-03.md): `[PENDIENTE]`
+  - [Entrevista 3](docs/research/entrevista-03.md): gerenta de proyectos. Revisa con la guía de formulación; una revisión le toma ~2 semanas; actualizar costos que cambian es engorroso; busca normas en el SPIJ y la DGPMI; usa IA solo para estructurar secciones; decide la compra el gerente general (hoy: ChatGPT de USD 20).
 
 ## 4. Solución e insight
 **Qué hace:** subes la ficha técnica o el resumen ejecutivo (PDF, incluso escaneado) y obtienes:
