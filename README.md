@@ -3,7 +3,7 @@
 > **One-liner:** Hacemos un asistente para consultores de inversión pública que convierte una ficha técnica o resumen ejecutivo de Invierte.pe en una matriz con cada dato citado (página y fragmento verificados por código), la contrasta con el Banco de Inversiones y responde preguntas con la normativa, mediante OCR, LLMs con salida estructurada y RAG.
 
 - **Demo en vivo:** https://invertecopilot-t7hk6dazefypk4ohdvylpn.streamlit.app/
-- **Video de respaldo (60–90 s):** `[PEGAR ENLACE]`
+- **Video de respaldo (60–90 s):** https://drive.google.com/file/d/1kLi0KkGD-1PV85SLzlZh4NrV7iy7Qkhq/view?usp=sharing
 
 ---
 
